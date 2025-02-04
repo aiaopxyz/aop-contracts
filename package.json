@@ -1,0 +1,20 @@
+{
+  "name": "ai-agent-vault",
+  "version": "1.0.0",
+  "description": "This protocol allows users to deposit assets into vaults managed by AI agents for automated trading and yield generation.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "5.0.1",
+    "@openzeppelin/contracts-upgradeable": "^5.0.1",
+    "@openzeppelin/hardhat-upgrades": "^3.0.4",
+    "dotenv": "^16.4.7",
+    "hardhat": "^2.22.18"
+  }
+}
