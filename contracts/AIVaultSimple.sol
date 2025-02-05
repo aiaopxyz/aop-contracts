@@ -44,6 +44,22 @@ contract AIVaultSimple is ReentrancyGuard, AccessControl, Pausable {
         bool isEmergency;          // Whether vault is in emergency state
     }
 
+    // User metrics for tracking individual performance
+    struct UserMetrics {
+        uint256 totalDeposited;    // Total amount user has deposited
+        uint256 totalWithdrawn;    // Total amount user has withdrawn
+        uint256 lastDepositAmount; // Amount of last deposit
+        uint256 lastWithdrawAmount;// Amount of last withdrawal
+        uint256 depositCount;      // Number of deposits made
+        uint256 withdrawCount;     // Number of withdrawals made
+        uint256 firstDepositTime;  // Timestamp of first deposit
+        uint256 lastDepositTime;   // Timestamp of last deposit
+        uint256 lastWithdrawTime;  // Timestamp of last withdrawal
+        uint256 highWaterMark;     // User's highest asset value
+        uint256 realizedProfits;   // Total profits realized through withdrawals
+        bool isActive;             // Whether user has active deposits
+    }
+
     // State variables
     IERC20 public immutable asset;
     address public immutable revenuePool;
@@ -58,7 +74,7 @@ contract AIVaultSimple is ReentrancyGuard, AccessControl, Pausable {
     uint256 public totalShares;
     uint256 public totalAssets;
     mapping(address => uint256) public shares;
-    mapping(address => uint256) public lastDepositTime;
+    mapping(address => UserMetrics) public userMetrics;
 
     // Events
     event Deposit(address indexed user, uint256 assets, uint256 shares);
@@ -71,6 +87,12 @@ contract AIVaultSimple is ReentrancyGuard, AccessControl, Pausable {
     event EmergencyStateDeactivated();
     event EmergencyWithdrawal(address indexed user, uint256 amount, uint256 fee);
     event MetricsUpdated(uint256 tvl, uint256 apy, uint256 totalProfits);
+    event UserMetricsUpdated(
+        address indexed user,
+        uint256 totalDeposited,
+        uint256 totalWithdrawn,
+        uint256 realizedProfits
+    );
 
     /**
      * @dev Constructor
@@ -111,17 +133,37 @@ contract AIVaultSimple is ReentrancyGuard, AccessControl, Pausable {
         totalShares += shares_;
         shares[msg.sender] += shares_;
         totalAssets += amount;
-        lastDepositTime[msg.sender] = block.timestamp;
+
+        // Update user metrics
+        UserMetrics storage userMetric = userMetrics[msg.sender];
+        if (!userMetric.isActive) {
+            userMetric.firstDepositTime = block.timestamp;
+            userMetric.isActive = true;
+            metrics.userCount++;
+        }
+        userMetric.totalDeposited += amount;
+        userMetric.lastDepositAmount = amount;
+        userMetric.lastDepositTime = block.timestamp;
+        userMetric.depositCount++;
+
+        // Update high water mark if necessary
+        uint256 userAssetValue = getAssetValueOfShares(shares[msg.sender]);
+        if (userAssetValue > userMetric.highWaterMark) {
+            userMetric.highWaterMark = userAssetValue;
+        }
 
         // Update metrics
         metrics.tvl = totalAssets;
-        if (shares[msg.sender] == shares_) {
-            metrics.userCount++;
-        }
 
         asset.safeTransferFrom(msg.sender, address(this), amount);
         
         emit Deposit(msg.sender, amount, shares_);
+        emit UserMetricsUpdated(
+            msg.sender,
+            userMetric.totalDeposited,
+            userMetric.totalWithdrawn,
+            userMetric.realizedProfits
+        );
     }
 
     /**
@@ -138,15 +180,37 @@ contract AIVaultSimple is ReentrancyGuard, AccessControl, Pausable {
         totalShares -= shareAmount;
         totalAssets -= assets;
 
-        // Update metrics
-        metrics.tvl = totalAssets;
+        // Update user metrics
+        UserMetrics storage userMetric = userMetrics[msg.sender];
+        userMetric.totalWithdrawn += assets;
+        userMetric.lastWithdrawAmount = assets;
+        userMetric.lastWithdrawTime = block.timestamp;
+        userMetric.withdrawCount++;
+
+        // Calculate realized profits
+        if (assets > userMetric.totalDeposited - userMetric.totalWithdrawn) {
+            uint256 profit = assets - (userMetric.totalDeposited - userMetric.totalWithdrawn);
+            userMetric.realizedProfits += profit;
+        }
+
+        // Update active status
         if (shares[msg.sender] == 0) {
+            userMetric.isActive = false;
             metrics.userCount--;
         }
+
+        // Update metrics
+        metrics.tvl = totalAssets;
 
         asset.safeTransfer(msg.sender, assets);
         
         emit Withdraw(msg.sender, assets, shareAmount);
+        emit UserMetricsUpdated(
+            msg.sender,
+            userMetric.totalDeposited,
+            userMetric.totalWithdrawn,
+            userMetric.realizedProfits
+        );
     }
 
     /**
